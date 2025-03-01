@@ -3,7 +3,9 @@
     <uses-permission android:name="android.permission.INTERNET" />
 
     <!-- Bluetooth разрешения -->
+    <!-- <uses-permission android:name="android.permission.BLUETOOTH" /> -->
     <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
+    <!-- <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" /> -->    
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
     
     <!-- Bluetooth разрешения для Android 12+ (API Level 31+) -->

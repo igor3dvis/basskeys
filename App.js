@@ -1,45 +1,31 @@
 // App с навигацией /////////////////////////////////////////////////////////////////////////
 
 import React from 'react';
-import { SafeAreaView, StatusBar, StyleSheet } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
-import { createNativeStackNavigator } from '@react-navigation/native-stack';
-
+import { createStackNavigator } from '@react-navigation/stack';
 import BluetoothManager from './src/screens/BluetoothManager';
 import DeviceControlScreen from './src/screens/DeviceControlScreen';
 
-const Stack = createNativeStackNavigator();
+const Stack = createStackNavigator();
 
-const App = () => {
+export default function App() {
   return (
     <NavigationContainer>
-      <SafeAreaView style={styles.container}>
-        <StatusBar barStyle="dark-content" backgroundColor="#f5f5f5" />
-        <Stack.Navigator initialRouteName="BluetoothManager">
-          <Stack.Screen 
-            name="BluetoothManager" 
-            component={BluetoothManager} 
-            options={{ title: 'Bluetooth Устройства' }} 
-          />
-          <Stack.Screen 
-            name="DeviceControl" 
-            component={DeviceControlScreen} 
-            options={{ title: 'Управление устройством' }} 
-          />
-        </Stack.Navigator>
-      </SafeAreaView>
+      <Stack.Navigator initialRouteName="BluetoothManager">
+        <Stack.Screen 
+          name="BluetoothManager" 
+          component={BluetoothManager} 
+          options={{ title: 'Bluetooth Устройства' }} 
+        />
+        <Stack.Screen 
+          name="DeviceControlScreen" 
+          component={DeviceControlScreen} 
+          options={{ title: 'Управление устройством' }} 
+        />
+      </Stack.Navigator>
     </NavigationContainer>
   );
-};
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: '#f5f5f5',
-  },
-});
-
-export default App;
+}
 
 
 //*********************************************************************************** */

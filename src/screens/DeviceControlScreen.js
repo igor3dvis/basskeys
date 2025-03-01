@@ -1,195 +1,189 @@
 import React, { useState, useEffect } from 'react';
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  TextInput,
-  StyleSheet,
-  ScrollView,
-  Alert,
-} from 'react-native';
-import Slider from '@react-native-community/slider';
+import { View, Text, Button, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, Alert } from 'react-native';
 import RNBluetoothClassic from 'react-native-bluetooth-classic';
 
 const DeviceControlScreen = ({ route, navigation }) => {
   const { device } = route.params;
-  const [isConnected, setIsConnected] = useState(false);
-  const [messages, setMessages] = useState([]);
-  const [inputMessage, setInputMessage] = useState('');
-  const [sliderValue, setSliderValue] = useState(0);
+  const [connected, setConnected] = useState(false);
+  const [connecting, setConnecting] = useState(false);
+  const [receivedData, setReceivedData] = useState([]);
+  const [connectionError, setConnectionError] = useState(null);
+  
+  // Функция для подключения к устройству
+  const connectToDevice = async () => {
+    if (connecting) return;
+    
+    try {
+      setConnecting(true);
+      setConnectionError(null);
+      
+      console.log('Попытка подключения к устройству:', device.name);
+      
+      // Подключаемся к устройству
+      await RNBluetoothClassic.connectToDevice(device.address);
+      console.log('Успешно подключено к устройству');
+      
+      // Успешное подключение
+      setConnected(true);
+      
+      // Устанавливаем обработчик получения данных
+      const dataListener = (data) => {
+        console.log('Получены данные:', data);
+        if (data && data.device && data.device.address === device.address) {
+          setReceivedData(prev => [...prev, {
+            message: data.data,
+            timestamp: new Date().toLocaleTimeString()
+          }]);
+        }
+      };
+      
+      RNBluetoothClassic.addListener('bluetoothClassicDataReceived', dataListener);
 
-  useEffect(() => {
-    let connectionListener = null;
-    
-    const connectToDevice = async () => {
-      try {
-        const connected = await RNBluetoothClassic.connectToDevice(device.address);
-        console.log('Подключено:', connected);
-        setIsConnected(true);
-        
-        // Настраиваем прослушивание данных
-        connectionListener = RNBluetoothClassic.onDeviceDataReceived(
-          device.address,
-          onDataReceived
-        );
-        
-        // Добавляем приветственное сообщение
-        addMessage('Устройство подключено!', 'system');
-      } catch (error) {
-        console.error(`Ошибка при подключении к ${device.name}:`, error);
-        Alert.alert('Ошибка', `Не удалось подключиться к устройству: ${error.message}`);
-        navigation.goBack();
-      }
-    };
-    
-    connectToDevice();
-    
-    // Очистка при размонтировании
-    return () => {
-      if (connectionListener) {
-        connectionListener.remove();
-      }
-      disconnectFromDevice();
-    };
-  }, [device]);
+      // Очистка при размонтировании компонента
+      return () => {
+        RNBluetoothClassic.removeListener('bluetoothClassicDataReceived', dataListener);
+      };
 
-  const onDataReceived = (data) => {
-    console.log('Получены данные:', data);
-    addMessage(data.data, 'received');
+    } catch (error) {
+      console.error('Ошибка подключения:', error);
+      setConnectionError(`Ошибка: ${error.message}`);
+      Alert.alert('Ошибка подключения', `Не удалось подключиться к устройству: ${error.message}`);
+    } finally {
+      setConnecting(false);
+    }
   };
   
-  const addMessage = (text, type) => {
-    setMessages(prev => [...prev, { 
-      id: Date.now().toString(), 
-      text, 
-      type,
-      timestamp: new Date().toLocaleTimeString()
-    }]);
-  };
-
+  // Отключение от устройства
   const disconnectFromDevice = async () => {
-    if (isConnected) {
-      try {
-        await RNBluetoothClassic.disconnectFromDevice(device.address);
-        console.log(`Отключено от устройства: ${device.name}`);
-        setIsConnected(false);
-      } catch (error) {
-        console.error('Ошибка при отключении:', error);
-      }
+    try {
+      await RNBluetoothClassic.disconnectFromDevice(device.address);
+      console.log('Устройство отключено');
+      setConnected(false);
+    } catch (error) {
+      console.error('Ошибка отключения:', error);
+      Alert.alert('Ошибка', `Не удалось отключиться от устройства: ${error.message}`);
     }
   };
-
-  const sendMessage = async () => {
-    if (!inputMessage.trim()) return;
+  
+  // Отправка команды на устройство
+  const sendCommand = async (command) => {
+    if (!connected) {
+      Alert.alert('Не подключено', 'Сначала подключитесь к устройству');
+      return;
+    }
     
     try {
-      const success = await RNBluetoothClassic.writeToDevice(
-        device.address,
-        inputMessage
-      );
+      console.log('Отправка команды:', command);
+      // Отправляем данные на устройство
+      await RNBluetoothClassic.writeToDevice(device.address, command);
       
-      if (success) {
-        addMessage(inputMessage, 'sent');
-        setInputMessage('');
-      } else {
-        Alert.alert('Ошибка', 'Не удалось отправить сообщение');
-      }
+      // Добавляем отправленную команду в журнал
+      setReceivedData(prev => [...prev, {
+        message: `Отправлено: ${command}`,
+        timestamp: new Date().toLocaleTimeString(),
+        sent: true
+      }]);
     } catch (error) {
-      console.error('Ошибка при отправке сообщения:', error);
-      Alert.alert('Ошибка', `Сбой отправки: ${error.message}`);
+      console.error('Ошибка отправки:', error);
+      Alert.alert('Ошибка', `Не удалось отправить команду: ${error.message}`);
     }
   };
 
-  const sendSliderValue = async () => {
-    try {
-      const valueStr = sliderValue.toString();
-      const success = await RNBluetoothClassic.writeToDevice(
-        device.address,
-        valueStr
-      );
-      
-      if (success) {
-        addMessage(`Отправлено значение: ${valueStr}`, 'sent');
-      } else {
-        Alert.alert('Ошибка', 'Не удалось отправить значение');
-      }
-    } catch (error) {
-      console.error('Ошибка при отправке значения ползунка:', error);
+  // Очистка при размонтировании компонента
+  useEffect(() => {
+    let removeDataListener = null;
+    if (connected) {
+      removeDataListener = connectToDevice();
     }
-  };
+    
+    return () => {
+      if (removeDataListener) {
+        removeDataListener(); // Очистка слушателей при размонтировании компонента
+      }
+      
+      // Удаляем слушатели Bluetooth при выходе из компонента
+      if (connected) {
+        RNBluetoothClassic.disconnectFromDevice(device.address)
+          .catch(error => console.error('Ошибка отключения при выходе:', error));
+      }
+    };
+  }, [connected, device]);
 
   return (
     <View style={styles.container}>
       <View style={styles.deviceInfo}>
-        <Text style={styles.deviceName}>{device.name}</Text>
+        <Text style={styles.deviceName}>{device.name || 'Неизвестное устройство'}</Text>
         <Text style={styles.deviceAddress}>{device.address}</Text>
-        <Text style={[
-          styles.connectionStatus, 
-          { color: isConnected ? '#4CAF50' : '#F44336' }
-        ]}>
-          {isConnected ? 'Подключено' : 'Отключено'}
+        <Text style={styles.connectionStatus}>
+          Статус: {connecting ? 'Подключение...' : (connected ? 'Подключено' : 'Отключено')}
         </Text>
+        {connectionError && (
+          <Text style={styles.errorText}>{connectionError}</Text>
+        )}
       </View>
-      
-      <ScrollView 
-        style={styles.messagesContainer}
-        contentContainerStyle={styles.messagesList}
-        ref={ref => {this.scrollView = ref}}
-        onContentSizeChange={() => this.scrollView.scrollToEnd({animated: true})}
-      >
-        {messages.map(message => (
-          <View 
-            key={message.id} 
-            style={[
-              styles.messageItem,
-              message.type === 'sent' && styles.sentMessage,
-              message.type === 'received' && styles.receivedMessage,
-              message.type === 'system' && styles.systemMessage,
-            ]}
+
+      <View style={styles.connectionActions}>
+        {!connected ? (
+          <Button
+            title={connecting ? "Подключение..." : "Подключиться"}
+            onPress={connectToDevice}
+            disabled={connecting}
+          />
+        ) : (
+          <Button
+            title="Отключиться"
+            onPress={disconnectFromDevice}
+            color="#ff5252"
+          />
+        )}
+      </View>
+
+      <View style={styles.controlPanel}>
+        <Text style={styles.sectionTitle}>Управление устройством</Text>
+        <View style={styles.controlButtons}>
+          <TouchableOpacity
+            style={[styles.controlButton, styles.onButton]}
+            onPress={() => sendCommand('1')}
+            disabled={!connected}
           >
-            <Text style={styles.messageText}>{message.text}</Text>
-            <Text style={styles.messageTime}>{message.timestamp}</Text>
-          </View>
-        ))}
-      </ScrollView>
-      
-      <View style={styles.controlsContainer}>
-        <Text style={styles.sliderLabel}>Значение: {sliderValue}</Text>
-        <Slider
-          style={styles.slider}
-          minimumValue={0}
-          maximumValue={100}
-          step={1}
-          value={sliderValue}
-          onValueChange={setSliderValue}
-          minimumTrackTintColor="#2196F3"
-          maximumTrackTintColor="#9E9E9E"
-          thumbTintColor="#2196F3"
-        />
-        <TouchableOpacity 
-          style={styles.sliderButton}
-          onPress={sendSliderValue}
-          disabled={!isConnected}
-        >
-          <Text style={styles.buttonText}>Отправить значение</Text>
-        </TouchableOpacity>
+            <Text style={styles.buttonText}>Включить LED</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.controlButton, styles.offButton]}
+            onPress={() => sendCommand('0')}
+            disabled={!connected}
+          >
+            <Text style={styles.buttonText}>Выключить LED</Text>
+          </TouchableOpacity>
+        </View>
       </View>
-      
-      <View style={styles.inputContainer}>
-        <TextInput
-          style={styles.input}
-          value={inputMessage}
-          onChangeText={setInputMessage}
-          placeholder="Введите сообщение..."
-          placeholderTextColor="#9E9E9E"
-        />
-        <TouchableOpacity 
-          style={[styles.sendButton, !isConnected && styles.disabledButton]}
-          onPress={sendMessage}
-          disabled={!isConnected || !inputMessage.trim()}
-        >
-          <Text style={styles.buttonText}>Отправить</Text>
-        </TouchableOpacity>
+
+      <View style={styles.dataContainer}>
+        <Text style={styles.sectionTitle}>Журнал данных</Text>
+        {connecting && (
+          <ActivityIndicator size="large" color="#0066cc" />
+        )}
+        <ScrollView style={styles.dataLog}>
+          {receivedData.length > 0 ? (
+            receivedData.map((item, index) => (
+              <View 
+                key={index}
+                style={[
+                  styles.dataItem,
+                  item.sent ? styles.sentData : styles.receivedData
+                ]}
+              >
+                <Text style={styles.timestamp}>{item.timestamp}</Text>
+                <Text style={styles.dataText}>{item.message}</Text>
+              </View>
+            ))
+          ) : (
+            <Text style={styles.emptyDataText}>
+              {connected ? 'Нет данных. Попробуйте отправить команду.' : 'Подключитесь к устройству для получения данных.'}
+            </Text>
+          )}
+        </ScrollView>
       </View>
     </View>
   );
@@ -198,109 +192,102 @@ const DeviceControlScreen = ({ route, navigation }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    padding: 16,
     backgroundColor: '#f5f5f5',
   },
   deviceInfo: {
-    backgroundColor: '#fff',
+    backgroundColor: 'white',
     padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e0e0e0',
+    borderRadius: 8,
+    marginBottom: 16,
+    elevation: 2,
   },
   deviceName: {
     fontSize: 18,
     fontWeight: 'bold',
+    color: '#226622',
   },
   deviceAddress: {
-    color: '#757575',
-    marginTop: 4,
+    color: '#666',
+    marginBottom: 8,
   },
   connectionStatus: {
-    fontWeight: 'bold',
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  errorText: {
+    color: 'red',
     marginTop: 8,
   },
-  messagesContainer: {
-    flex: 1,
+  connectionActions: {
+    marginBottom: 16,
+  },
+  controlPanel: {
+    backgroundColor: 'white',
     padding: 16,
+    borderRadius: 8,
+    marginBottom: 16,
+    elevation: 2,
   },
-  messagesList: {
-    paddingBottom: 16,
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginBottom: 12,
   },
-  messageItem: {
+  controlButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+  },
+  controlButton: {
     padding: 12,
     borderRadius: 8,
-    marginBottom: 8,
-    maxWidth: '80%',
-  },
-  sentMessage: {
-    backgroundColor: '#E3F2FD',
-    alignSelf: 'flex-end',
-  },
-  receivedMessage: {
-    backgroundColor: '#FFFFFF',
-    alignSelf: 'flex-start',
-  },
-  systemMessage: {
-    backgroundColor: '#F5F5F5',
-    alignSelf: 'center',
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-  },
-  messageText: {
-    fontSize: 16,
-  },
-  messageTime: {
-    fontSize: 12,
-    color: '#9E9E9E',
-    marginTop: 4,
-    alignSelf: 'flex-end',
-  },
-  controlsContainer: {
-    backgroundColor: '#fff',
-    padding: 16,
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: '#e0e0e0',
-  },
-  sliderLabel: {
-    fontSize: 16,
-    marginBottom: 8,
-  },
-  slider: {
-    height: 40,
-  },
-  sliderButton: {
-    backgroundColor: '#2196F3',
-    padding: 10,
-    borderRadius: 8,
+    minWidth: 120,
     alignItems: 'center',
-    marginTop: 8,
   },
-  inputContainer: {
-    flexDirection: 'row',
-    padding: 16,
-    backgroundColor: '#fff',
+  onButton: {
+    backgroundColor: '#4caf50',
   },
-  input: {
-    flex: 1,
-    backgroundColor: '#f5f5f5',
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    marginRight: 8,
-    fontSize: 16,
-  },
-  sendButton: {
-    backgroundColor: '#2196F3',
-    borderRadius: 8,
-    paddingHorizontal: 16,
-    justifyContent: 'center',
-  },
-  disabledButton: {
-    backgroundColor: '#BDBDBD',
+  offButton: {
+    backgroundColor: '#f44336',
   },
   buttonText: {
     color: 'white',
     fontWeight: 'bold',
+  },
+  dataContainer: {
+    flex: 1,
+    backgroundColor: 'white',
+    padding: 16,
+    borderRadius: 8,
+    elevation: 2,
+  },
+  dataLog: {
+    flex: 1,
+  },
+  dataItem: {
+    padding: 8,
+    borderRadius: 4,
+    marginBottom: 8,
+  },
+  sentData: {
+    backgroundColor: '#e3f2fd',
+  },
+  receivedData: {
+    backgroundColor: '#e8f5e9',
+  },
+  timestamp: {
+    fontSize: 12,
+    color: '#666',
+    marginBottom: 4,
+  },
+  dataText: {
+    fontSize: 14,
+    color: '#666',
+  },
+  emptyDataText: {
+    textAlign: 'center',
+    color: '#666',
+    marginTop: 16,
   },
 });
 

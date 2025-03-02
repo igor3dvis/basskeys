@@ -69,8 +69,18 @@ const BluetoothManager = ({ navigation }) => {
       setIsScanning(true);
       // Получаем список сопряженных устройств
       const devices = await RNBluetoothClassic.getBondedDevices();
-      setDeviceList(devices);
-      console.log('Сопряженные устройства:', devices);
+      
+      // Очищаем устройства от несериализуемых свойств
+      const cleanDevices = devices.map(device => ({
+        address: device.address,
+        name: device.name,
+        id: device.id,
+        bonded: device.bonded,
+        deviceClass: device.deviceClass
+      }));
+      
+      setDeviceList(cleanDevices);
+      console.log('Сопряженные устройства:', cleanDevices);
     } catch (error) {
       console.error('Ошибка получения сопряженных устройств:', error);
       Alert.alert('Ошибка', 'Не удалось получить список устройств');

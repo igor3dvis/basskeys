@@ -1,9 +1,18 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, Button, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, Button, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, Alert, NativeEventEmitter } from 'react-native';
 import RNBluetoothClassic from 'react-native-bluetooth-classic';
 
 const DeviceControlScreen = ({ route, navigation }) => {
-  const { device } = route.params;
+  // Извлекаем данные устройства из навигации, но очищаем их от несериализуемых свойств
+  const rawDevice = route.params.device;
+  // Создаем чистый объект устройства без несериализуемых свойств
+  const device = {
+    address: rawDevice.address,
+    name: rawDevice.name || 'Неизвестное устройство',
+    id: rawDevice.id,
+    bonded: rawDevice.bonded
+  };
+  
   const [connected, setConnected] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const [receivedData, setReceivedData] = useState([]);
@@ -26,24 +35,6 @@ const DeviceControlScreen = ({ route, navigation }) => {
       // Успешное подключение
       setConnected(true);
       
-      // Устанавливаем обработчик получения данных
-      const dataListener = (data) => {
-        console.log('Получены данные:', data);
-        if (data && data.device && data.device.address === device.address) {
-          setReceivedData(prev => [...prev, {
-            message: data.data,
-            timestamp: new Date().toLocaleTimeString()
-          }]);
-        }
-      };
-      
-      RNBluetoothClassic.addListener('bluetoothClassicDataReceived', dataListener);
-
-      // Очистка при размонтировании компонента
-      return () => {
-        RNBluetoothClassic.removeListener('bluetoothClassicDataReceived', dataListener);
-      };
-
     } catch (error) {
       console.error('Ошибка подключения:', error);
       setConnectionError(`Ошибка: ${error.message}`);
@@ -83,6 +74,24 @@ const DeviceControlScreen = ({ route, navigation }) => {
         timestamp: new Date().toLocaleTimeString(),
         sent: true
       }]);
+      
+      // Через 1 секунду вручную проверяем ответ от устройства
+      setTimeout(async () => {
+        try {
+          // Чтение данных с устройства
+          const readData = await RNBluetoothClassic.readFromDevice(device.address);
+          if (readData && readData.length > 0) {
+            console.log('Получены данные:', readData);
+            setReceivedData(prev => [...prev, {
+              message: readData,
+              timestamp: new Date().toLocaleTimeString()
+            }]);
+          }
+        } catch (readError) {
+          console.log('Ошибка при чтении данных:', readError);
+        }
+      }, 1000);
+      
     } catch (error) {
       console.error('Ошибка отправки:', error);
       Alert.alert('Ошибка', `Не удалось отправить команду: ${error.message}`);
@@ -91,28 +100,56 @@ const DeviceControlScreen = ({ route, navigation }) => {
 
   // Очистка при размонтировании компонента
   useEffect(() => {
-    let removeDataListener = null;
-    if (connected) {
-      removeDataListener = connectToDevice();
-    }
-    
     return () => {
-      if (removeDataListener) {
-        removeDataListener(); // Очистка слушателей при размонтировании компонента
-      }
-      
-      // Удаляем слушатели Bluetooth при выходе из компонента
       if (connected) {
         RNBluetoothClassic.disconnectFromDevice(device.address)
           .catch(error => console.error('Ошибка отключения при выходе:', error));
       }
     };
-  }, [connected, device]);
+  }, [connected, device.address]);
+
+  // Настраиваем опрос устройства для получения данных
+  useEffect(() => {
+    let isActive = true;
+    let pollInterval = null;
+    
+    if (connected) {
+      // Функция для чтения данных с устройства
+      const pollDevice = async () => {
+        try {
+          const available = await RNBluetoothClassic.available(device.address);
+          if (available > 0) {
+            const data = await RNBluetoothClassic.readFromDevice(device.address);
+            console.log('Прочитаны данные:', data);
+            
+            if (isActive && data) {
+              setReceivedData(prev => [...prev, {
+                message: data,
+                timestamp: new Date().toLocaleTimeString()
+              }]);
+            }
+          }
+        } catch (error) {
+          console.error('Ошибка при опросе устройства:', error);
+        }
+      };
+      
+      // Начинаем опрос устройства каждые 2 секунды
+      pollInterval = setInterval(pollDevice, 2000);
+    }
+    
+    return () => {
+      isActive = false;
+      if (pollInterval) {
+        clearInterval(pollInterval);
+      }
+    };
+  }, [connected, device.address]);
 
   return (
     <View style={styles.container}>
       <View style={styles.deviceInfo}>
-        <Text style={styles.deviceName}>{device.name || 'Неизвестное устройство'}</Text>
+        <Text style={styles.deviceName}>{device.name}</Text>
         <Text style={styles.deviceAddress}>{device.address}</Text>
         <Text style={styles.connectionStatus}>
           Статус: {connecting ? 'Подключение...' : (connected ? 'Подключено' : 'Отключено')}
@@ -214,6 +251,7 @@ const styles = StyleSheet.create({
   connectionStatus: {
     fontSize: 16,
     fontWeight: '500',
+    color: '#226622',
   },
   errorText: {
     color: 'red',
@@ -233,6 +271,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
     marginBottom: 12,
+    color: '#226622',
   },
   controlButtons: {
     flexDirection: 'row',

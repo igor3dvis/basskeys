@@ -159,6 +159,7 @@ const styles = StyleSheet.create({
   statusText: {
     fontSize: 16,
     marginBottom: 8,
+    color: '#555',
   },
   actionsContainer: {
     marginBottom: 16,

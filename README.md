@@ -47,13 +47,14 @@
 * после обновление кода (даже изменения стиля) приложение выдает ошибку. соединение прерывается, и не запускается
 
 
-     
+*** error-examples-bank BEGIN *** 
 !--Ошибка:
       RENDER ERROR
       removeDataListener is not a function (it is Object)
 
 !--Ошибка:
     _reactNativeBluetoothClassic.default.addListener is not a function (it is undefined)
+*** errors-examples-bank END *** 
 
 
 

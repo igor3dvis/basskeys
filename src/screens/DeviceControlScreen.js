@@ -1,11 +1,10 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, Button, StyleSheet, TouchableOpacity, ScrollView, ActivityIndicator, Alert, NativeEventEmitter } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, Button, StyleSheet, TouchableOpacity, ActivityIndicator, Alert } from 'react-native';
 import RNBluetoothClassic from 'react-native-bluetooth-classic';
 
 const DeviceControlScreen = ({ route, navigation }) => {
   // Извлекаем данные устройства из навигации, но очищаем их от несериализуемых свойств
   const rawDevice = route.params.device;
-  // Создаем чистый объект устройства без несериализуемых свойств
   const device = {
     address: rawDevice.address,
     name: rawDevice.name || 'Неизвестное устройство',
@@ -15,8 +14,64 @@ const DeviceControlScreen = ({ route, navigation }) => {
   
   const [connected, setConnected] = useState(false);
   const [connecting, setConnecting] = useState(false);
-  const [receivedData, setReceivedData] = useState([]);
   const [connectionError, setConnectionError] = useState(null);
+  const [lastPingStatus, setLastPingStatus] = useState(null);
+  
+  // Используем useRef для сохранения таймера между рендерами
+  const connectionCheckTimerRef = useRef(null);
+  
+  // Функция для проверки статуса соединения
+  const checkConnectionStatus = async () => {
+    if (!connected) return;
+    
+    try {
+      // Проверяем, действительно ли устройство подключено
+      const isConnected = await RNBluetoothClassic.isDeviceConnected(device.address);
+      
+      // Обновляем статус последнего пинга
+      const timestamp = new Date().toLocaleTimeString();
+      
+      if (isConnected) {
+        setLastPingStatus(`Соединение активно (${timestamp})`);
+        console.log('Проверка соединения: устройство подключено');
+      } else {
+        setLastPingStatus(`Соединение потеряно (${timestamp})`);
+        console.log('Проверка соединения: устройство отключено');
+        setConnected(false);
+      }
+      
+    } catch (error) {
+      console.error('Ошибка при проверке соединения:', error);
+      setLastPingStatus(`Ошибка соединения (${new Date().toLocaleTimeString()})`);
+      setConnected(false);
+    }
+  };
+  
+  // Эффект для настройки периодической проверки соединения
+  useEffect(() => {
+    // Очистим предыдущий таймер если он существует
+    if (connectionCheckTimerRef.current) {
+      clearInterval(connectionCheckTimerRef.current);
+      connectionCheckTimerRef.current = null;
+    }
+    
+    // Если устройство подключено, начинаем периодическую проверку
+    if (connected) {
+      // Выполняем первую проверку сразу
+      checkConnectionStatus();
+      
+      // Устанавливаем периодическую проверку каждые 5 секунд
+      connectionCheckTimerRef.current = setInterval(checkConnectionStatus, 5000);
+    }
+    
+    // Очистка при размонтировании или изменении состояния подключения
+    return () => {
+      if (connectionCheckTimerRef.current) {
+        clearInterval(connectionCheckTimerRef.current);
+        connectionCheckTimerRef.current = null;
+      }
+    };
+  }, [connected, device.address]);
   
   // Функция для подключения к устройству
   const connectToDevice = async () => {
@@ -34,6 +89,7 @@ const DeviceControlScreen = ({ route, navigation }) => {
       
       // Успешное подключение
       setConnected(true);
+      setLastPingStatus(`Подключено (${new Date().toLocaleTimeString()})`);
       
     } catch (error) {
       console.error('Ошибка подключения:', error);
@@ -50,13 +106,14 @@ const DeviceControlScreen = ({ route, navigation }) => {
       await RNBluetoothClassic.disconnectFromDevice(device.address);
       console.log('Устройство отключено');
       setConnected(false);
+      setLastPingStatus(null);
     } catch (error) {
       console.error('Ошибка отключения:', error);
       Alert.alert('Ошибка', `Не удалось отключиться от устройства: ${error.message}`);
     }
   };
   
-  // Отправка команды на устройство
+  // Отправка команды на устройство без ожидания ответа
   const sendCommand = async (command) => {
     if (!connected) {
       Alert.alert('Не подключено', 'Сначала подключитесь к устройству');
@@ -67,81 +124,38 @@ const DeviceControlScreen = ({ route, navigation }) => {
       console.log('Отправка команды:', command);
       // Отправляем данные на устройство
       await RNBluetoothClassic.writeToDevice(device.address, command);
-      
-      // Добавляем отправленную команду в журнал
-      setReceivedData(prev => [...prev, {
-        message: `Отправлено: ${command}`,
-        timestamp: new Date().toLocaleTimeString(),
-        sent: true
-      }]);
-      
-      // Через 1 секунду вручную проверяем ответ от устройства
-      setTimeout(async () => {
-        try {
-          // Чтение данных с устройства
-          const readData = await RNBluetoothClassic.readFromDevice(device.address);
-          if (readData && readData.length > 0) {
-            console.log('Получены данные:', readData);
-            setReceivedData(prev => [...prev, {
-              message: readData,
-              timestamp: new Date().toLocaleTimeString()
-            }]);
-          }
-        } catch (readError) {
-          console.log('Ошибка при чтении данных:', readError);
-        }
-      }, 1000);
-      
     } catch (error) {
       console.error('Ошибка отправки:', error);
       Alert.alert('Ошибка', `Не удалось отправить команду: ${error.message}`);
     }
   };
 
+  // Переход на экран клавиатуры
+  const goToKeyboard = () => {
+    if (!connected) {
+      Alert.alert('Не подключено', 'Сначала подключитесь к устройству');
+      return;
+    }
+    
+    navigation.navigate('KeyboardScreen', { device });
+  };
+
   // Очистка при размонтировании компонента
   useEffect(() => {
     return () => {
-      if (connected) {
-        RNBluetoothClassic.disconnectFromDevice(device.address)
-          .catch(error => console.error('Ошибка отключения при выходе:', error));
+      // Остановка таймера проверки соединения
+      if (connectionCheckTimerRef.current) {
+        clearInterval(connectionCheckTimerRef.current);
       }
-    };
-  }, [connected, device.address]);
-
-  // Настраиваем опрос устройства для получения данных
-  useEffect(() => {
-    let isActive = true;
-    let pollInterval = null;
-    
-    if (connected) {
-      // Функция для чтения данных с устройства
-      const pollDevice = async () => {
-        try {
-          const available = await RNBluetoothClassic.available(device.address);
-          if (available > 0) {
-            const data = await RNBluetoothClassic.readFromDevice(device.address);
-            console.log('Прочитаны данные:', data);
-            
-            if (isActive && data) {
-              setReceivedData(prev => [...prev, {
-                message: data,
-                timestamp: new Date().toLocaleTimeString()
-              }]);
-            }
-          }
-        } catch (error) {
-          console.error('Ошибка при опросе устройства:', error);
-        }
-      };
       
-      // Начинаем опрос устройства каждые 2 секунды
-      pollInterval = setInterval(pollDevice, 2000);
-    }
-    
-    return () => {
-      isActive = false;
-      if (pollInterval) {
-        clearInterval(pollInterval);
+      // Отключение от устройства при выходе
+      if (connected) {
+        try {
+          RNBluetoothClassic.disconnectFromDevice(device.address)
+            .catch(error => console.error('Ошибка отключения при выходе:', error));
+        } catch (e) {
+          console.error('Ошибка при попытке отключения:', e);
+        }
       }
     };
   }, [connected, device.address]);
@@ -154,6 +168,9 @@ const DeviceControlScreen = ({ route, navigation }) => {
         <Text style={styles.connectionStatus}>
           Статус: {connecting ? 'Подключение...' : (connected ? 'Подключено' : 'Отключено')}
         </Text>
+        {lastPingStatus && connected && (
+          <Text style={styles.pingStatus}>{lastPingStatus}</Text>
+        )}
         {connectionError && (
           <Text style={styles.errorText}>{connectionError}</Text>
         )}
@@ -196,32 +213,25 @@ const DeviceControlScreen = ({ route, navigation }) => {
         </View>
       </View>
 
-      <View style={styles.dataContainer}>
-        <Text style={styles.sectionTitle}>Журнал данных</Text>
-        {connecting && (
-          <ActivityIndicator size="large" color="#0066cc" />
-        )}
-        <ScrollView style={styles.dataLog}>
-          {receivedData.length > 0 ? (
-            receivedData.map((item, index) => (
-              <View 
-                key={index}
-                style={[
-                  styles.dataItem,
-                  item.sent ? styles.sentData : styles.receivedData
-                ]}
-              >
-                <Text style={styles.timestamp}>{item.timestamp}</Text>
-                <Text style={styles.dataText}>{item.message}</Text>
-              </View>
-            ))
-          ) : (
-            <Text style={styles.emptyDataText}>
-              {connected ? 'Нет данных. Попробуйте отправить команду.' : 'Подключитесь к устройству для получения данных.'}
-            </Text>
-          )}
-        </ScrollView>
+      <View style={styles.keyboardSection}>
+        <Text style={styles.sectionTitle}>Клавиатура</Text>
+        <Button
+          title="Перейти к клавиатуре"
+          onPress={goToKeyboard}
+          disabled={!connected}
+          color="#2196F3"
+        />
+        <Text style={styles.keyboardDescription}>
+          Используйте клавиатуру для отправки координат касания на устройство
+        </Text>
       </View>
+
+      {connecting && (
+        <View style={styles.loadingOverlay}>
+          <ActivityIndicator size="large" color="#0066cc" />
+          <Text style={styles.loadingText}>Подключение...</Text>
+        </View>
+      )}
     </View>
   );
 };
@@ -251,7 +261,11 @@ const styles = StyleSheet.create({
   connectionStatus: {
     fontSize: 16,
     fontWeight: '500',
-    color: '#226622',
+  },
+  pingStatus: {
+    fontSize: 14,
+    color: '#0066cc',
+    marginTop: 4,
   },
   errorText: {
     color: 'red',
@@ -271,7 +285,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: 'bold',
     marginBottom: 12,
-    color: '#226622',
   },
   controlButtons: {
     flexDirection: 'row',
@@ -293,40 +306,33 @@ const styles = StyleSheet.create({
     color: 'white',
     fontWeight: 'bold',
   },
-  dataContainer: {
-    flex: 1,
+  keyboardSection: {
     backgroundColor: 'white',
     padding: 16,
     borderRadius: 8,
+    marginBottom: 16,
     elevation: 2,
   },
-  dataLog: {
-    flex: 1,
-  },
-  dataItem: {
-    padding: 8,
-    borderRadius: 4,
-    marginBottom: 8,
-  },
-  sentData: {
-    backgroundColor: '#e3f2fd',
-  },
-  receivedData: {
-    backgroundColor: '#e8f5e9',
-  },
-  timestamp: {
-    fontSize: 12,
+  keyboardDescription: {
     color: '#666',
-    marginBottom: 4,
-  },
-  dataText: {
     fontSize: 14,
-    color: '#666',
-  },
-  emptyDataText: {
+    marginTop: 8,
     textAlign: 'center',
-    color: '#666',
-    marginTop: 16,
+  },
+  loadingOverlay: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  loadingText: {
+    color: 'white',
+    marginTop: 8,
+    fontSize: 16,
   },
 });
 

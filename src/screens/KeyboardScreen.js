@@ -59,7 +59,7 @@ const KeyboardScreen = ({ route, navigation }) => {
       if (activeTouchesRef.current.size > 0 || isAnyTouchActive) {
         sendCoordinates(currentCoordinatesRef.current);
       }
-    }, 50);
+    }, 10);  // I N T E R V A L  ***********************************************
     
     // Очистка при размонтировании компонента
     return () => {
@@ -88,9 +88,11 @@ const KeyboardScreen = ({ route, navigation }) => {
       
       onPanResponderGrant: (evt) => {
         // Начало касания
+        //const { locationX } = evt.nativeEvent;
+
         const { locationX } = evt.nativeEvent;
-        // Нормализуем координату X относительно ширины блока (пропорционально от 0 до 300)
-        const normalizedX = Math.round((locationX / (screenWidth - 32)) * 300);
+        // Нормализуем координату X относительно ширины блока (пропорционально от 0 до 50)
+        const normalizedX = Math.round((locationX / (screenWidth - 32)) * 38);
         
         // Обновляем набор активных касаний
         activeTouchesRef.current.add(index);
@@ -103,8 +105,8 @@ const KeyboardScreen = ({ route, navigation }) => {
       onPanResponderMove: (evt) => {
         // Движение пальца
         const { locationX } = evt.nativeEvent;
-        // Нормализуем координату X относительно ширины блока (пропорционально от 0 до 300)
-        const normalizedX = Math.round((locationX / (screenWidth - 32)) * 300);
+        // Нормализуем координату X относительно ширины блока (пропорционально от 0 до 50)
+        const normalizedX = Math.round((locationX / (screenWidth - 32)) * 38);
         
         // Обновляем координату
         updateCoordinate(index, normalizedX);
@@ -230,23 +232,23 @@ const styles = StyleSheet.create({
   touchStatus: {
     fontSize: 12,
     color: '#0066cc',
-    marginTop: 4,
+    marginTop: 1,
   },
   klavierParent: {
     flex: 1,
-    padding: 16,
+    padding: 2,
     justifyContent: 'space-between',
   },
   keyboardBlock: {
     width: '100%',
-    height: '12%',
+    height: '14%',
     backgroundColor: 'white',
     borderRadius: 8,
     borderWidth: 1,
     borderColor: '#ddd',
-    justifyContent: 'center',
+    justifyContent: 'left',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: 1,
     elevation: 2,
   },
   activeBlock: {
@@ -254,14 +256,16 @@ const styles = StyleSheet.create({
     borderColor: '#2196F3',
   },
   blockText: {
+    backgroundColor: '#cccccc',
     fontSize: 16,
     fontWeight: 'bold',
     color: '#333',
   },
   coordinateText: {
+    backgroundColor: '#dddddd',
     fontSize: 12,
     color: '#666',
-    marginTop: 4,
+    marginTop: 0,
   },
   footer: {
     padding: 16,
